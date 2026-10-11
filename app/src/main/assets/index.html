@@ -7603,7 +7603,7 @@
             </div>
             <div class="money-lasts-metrics-row">
               <div class="money-lasts-val amount-mono" id="moneyLastsDaysDisplay">0.0 days</div>
-              <div class="money-lasts-sub" id="moneyLastsTargetSub">You need 7 until allowance</div>
+              <div class="money-lasts-sub" id="moneyLastsTargetSub">Calculating...</div>
             </div>
             <div class="dedun-card-divider"></div>
             <div id="moneyLastsHint" class="money-lasts-hint-text">Calculating...</div>
@@ -9851,7 +9851,7 @@
       let currentQuickNoteTx = null;
       let quickNoteMode = 'append'; // 'append' or 'replace'
       let weeklyGoal = 5000;
-      let dailySpendingLimit = 1500;
+      let dailySpendingLimit = 1000;
       let emergencyBuffer = 0;
       let countEmptyDaysStreak = false;
       let planTargetMode = 'date'; // 'date' or 'plan'
@@ -9945,7 +9945,7 @@
           const storedDailyLimit = localStorage.getItem(STORAGE_KEYS.DAILY_LIMIT);
           if (storedDailyLimit !== null && storedDailyLimit !== '') {
             const parsedDaily = Number(storedDailyLimit);
-            dailySpendingLimit = isNaN(parsedDaily) ? 1500 : parsedDaily;
+            dailySpendingLimit = isNaN(parsedDaily) ? 1000 : parsedDaily;
           }
 
           const storedBuffer = localStorage.getItem(STORAGE_KEYS.EMERGENCY_BUFFER);
@@ -11196,17 +11196,20 @@
         let daysLate = 0;
         let afterToday = 0;
         let daysIncludingToday = 1;
+        let daysUntilTarget = 0;
         let needsTarget = false;
 
         if (allowanceTarget) {
           if (typeof allowanceTarget.afterToday === 'number') {
             afterToday = Math.max(0, allowanceTarget.afterToday);
             daysIncludingToday = afterToday + 1;
+            daysUntilTarget = afterToday;
           } else if (allowanceTarget.daysLate || allowanceTarget.lateDays || allowanceTarget.isLate) {
             isLate = true;
             daysLate = allowanceTarget.daysLate || allowanceTarget.lateDays || 0;
             afterToday = 0;
             daysIncludingToday = 0;
+            daysUntilTarget = 0;
           } else {
             const today = todayDate ? new Date(todayDate) : new Date();
             const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
@@ -11247,7 +11250,9 @@
                 daysLate = -diffDays;
                 afterToday = 0;
                 daysIncludingToday = 0;
+                daysUntilTarget = 0;
               } else {
+                daysUntilTarget = diffDays;
                 daysIncludingToday = Math.max(1, diffDays);
                 afterToday = daysIncludingToday - 1;
               }
@@ -11289,6 +11294,7 @@
         else if (L <= 0) status = 'no_limit';
         else if (usable === 0) status = 'out_of_money';
         else if (leftToday < 0) status = 'over';
+        else if (needsTarget) status = 'needs_target';
 
         return {
           usable,
@@ -11301,6 +11307,7 @@
           daysLate,
           afterToday,
           daysIncludingToday,
+          daysUntilTarget,
           needsTarget,
           L
         };
@@ -11420,7 +11427,7 @@
 
         const in13 = { dailyLimit: 1000, emergencyBuffer: 0, balance: 5000, todaySpent: 200, allowanceTarget: null, todayDate: new Date(2026, 9, 8) };
         const t13 = calculateDedunDailyPlan(in13);
-        const p13 = t13.needsTarget === true && t13.hint === 'Set your next allowance date or plan length in Settings.';
+        const p13 = t13.needsTarget === true && t13.status === 'needs_target' && t13.hint === 'Set your next allowance date or plan length in Settings.';
         results.push({ test: 'T13', pass: p13, input: in13, output: t13 });
 
         let allPassed = true;
@@ -11610,7 +11617,7 @@
         document.getElementById('goalProgressTrack').setAttribute('aria-valuenow', percent);
 
         // Daily spending limit indicator on hero progress bar
-        const dLimit = dailySpendingLimit || 1500;
+        const dLimit = (typeof dailySpendingLimit === 'number' && dailySpendingLimit > 0) ? dailySpendingLimit : 1000;
         const dailyBadge = document.getElementById('dailyIndBadge');
         const dailyStatus = document.getElementById('dailyIndStatus');
         const dailyMarker = document.getElementById('dailyProgressMarker');
@@ -11653,7 +11660,7 @@
           allowanceTargetParam = { type: 'plan', planStart, planDays };
         }
 
-        const dLimitNum = (typeof dailySpendingLimit === 'number' && !isNaN(dailySpendingLimit)) ? dailySpendingLimit : 1500;
+        const dLimitNum = (typeof dailySpendingLimit === 'number' && !isNaN(dailySpendingLimit)) ? dailySpendingLimit : 1000;
         const plan = calculateDedunDailyPlan({
           balance: currentNet,
           todaySpent,
@@ -11697,6 +11704,9 @@
           } else if (plan.status === 'over') {
             todayStatusPill.className = 'today-status-pill pill-over';
             todayStatusPill.textContent = `Over by Rs. ${formatWhole(Math.abs(plan.leftToday))}`;
+          } else if (plan.status === 'needs_target') {
+            todayStatusPill.className = 'today-status-pill pill-neutral';
+            todayStatusPill.textContent = 'Set allowance date';
           } else {
             todayStatusPill.className = 'today-status-pill pill-on-track';
             todayStatusPill.textContent = 'On track';
@@ -11775,10 +11785,12 @@
             moneyLastsTargetSub.textContent = `${plan.daysLate} ${plan.daysLate === 1 ? 'day' : 'days'} overdue`;
           } else if (plan.needsTarget) {
             moneyLastsTargetSub.textContent = 'No allowance date set';
-          } else if (plan.afterToday === 0) {
+          } else if (plan.daysUntilTarget === 0) {
             moneyLastsTargetSub.textContent = 'Allowance due today';
+          } else if (plan.daysUntilTarget === 1) {
+            moneyLastsTargetSub.textContent = 'Allowance tomorrow';
           } else {
-            moneyLastsTargetSub.textContent = `You need ${plan.daysIncludingToday} until allowance`;
+            moneyLastsTargetSub.textContent = `You need ${plan.afterToday} more ${plan.afterToday === 1 ? 'day' : 'days'}`;
           }
         }
 
@@ -11863,7 +11875,7 @@
 
       // --- Savings Streak Counter ---
       function updateSavingsStreak(currentNet, goal, weekSpent) {
-        const L = (typeof dailySpendingLimit === 'number') ? dailySpendingLimit : 1500;
+        const L = (typeof dailySpendingLimit === 'number') ? dailySpendingLimit : 1000;
         const streak = calculateDedunStreak(transactions, L, countEmptyDaysStreak, new Date());
         const streakNumberElems = document.querySelectorAll('.streak-number');
         streakNumberElems.forEach(el => {
@@ -12491,7 +12503,7 @@
         // Update trial count badge
         const trialBadge = document.getElementById('forecastTrialCountBadge');
         if (trialBadge) {
-          trialBadge.textContent = isWeek ? '1,000 bootstrap trials' : '1,000 Monte Carlo trials';
+          trialBadge.textContent = '1,000 simulated runs';
         }
 
         // Update Pace Projection below rings
@@ -13714,17 +13726,13 @@
           planStart = todayStr;
           savePlanSettings();
 
-          const incomeNoteEl = document.getElementById('incomeNote');
-          if (incomeNoteEl) incomeNoteEl.value = 'Allowance';
-          const incomeDateEl = document.getElementById('incomeDate');
-          if (incomeDateEl) incomeDateEl.value = todayStr;
-
-          const incomeModalEl = document.getElementById('incomeModal');
-          if (incomeModalEl) {
-            incomeModalEl.classList.add('open');
-          } else if (typeof window.openEntryForm === 'function') {
+          if (typeof window.openEntryForm === 'function') {
             window.openEntryForm('income');
           }
+          setTimeout(() => {
+            const incomeNoteEl = document.getElementById('incomeNote');
+            if (incomeNoteEl) incomeNoteEl.value = 'Allowance';
+          }, 50);
 
           if (planTargetMode === 'date') {
             showToast('Set your next allowance date in Settings');
@@ -13883,7 +13891,7 @@
 
           // Sync daily & weekly limit inputs
           const dailyInput = document.getElementById('inputDailyLimitTools');
-          if (dailyInput && !dailyInput.value) dailyInput.value = dailySpendingLimit || 1500;
+          if (dailyInput && !dailyInput.value) dailyInput.value = dailySpendingLimit || 1000;
           const weeklyInput = document.getElementById('inputWeeklyGoalTools');
           if (weeklyInput && !weeklyInput.value) weeklyInput.value = weeklyGoal || 5000;
           const allowanceDateInput = document.getElementById('inputNextAllowanceDate');
@@ -16861,7 +16869,7 @@
         }
 
         if (dailyInput) {
-          dailyInput.value = dailySpendingLimit || 1500;
+          dailyInput.value = dailySpendingLimit || 1000;
           dailyInput.addEventListener('input', () => {
             clearTimeout(dailyDebounceTimer);
             const val = parseFloat(dailyInput.value);
